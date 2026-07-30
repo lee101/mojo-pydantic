@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mojopydantic"
+version = "0.1.0"
+description = "Pydantic-style typed model validation with Mojo JSON kernels"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "Lee Penkman", email = "leepenkman@gmail.com"}]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Typing :: Typed",
+]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.package-data]
+mojopydantic = ["py.typed"]
