@@ -66,6 +66,13 @@ def test_primitive_list_fast_path_accumulates_errors():
     assert error_signature(ours.value) == error_signature(theirs.value)
 
 
+def test_string_integer_list_fast_path_parity():
+    values = [" 1 ", "+2", "-3", "004"]
+    assert mp.TypeAdapter(list[int]).validate_python(values) == pd.TypeAdapter(
+        list[int]
+    ).validate_python(values)
+
+
 @pytest.mark.parametrize(
     ("annotation", "payload"),
     [
@@ -156,6 +163,14 @@ def test_large_native_integer_falls_back_without_losing_precision():
     assert mp.TypeAdapter(list[int]).validate_json(payload) == pd.TypeAdapter(
         list[int]
     ).validate_json(payload)
+
+
+def test_native_checked_integer_boundaries():
+    payload = b"[-9007199254740991,0,9007199254740991]"
+    parsed = _lib.typed_json_ndarray(payload, int, False)
+    assert parsed is not None
+    assert parsed.tolist() == [-9007199254740991, 0, 9007199254740991]
+    assert _lib.typed_json_ndarray(b"[9007199254740992]", int, False) is None
 
 
 @pytest.mark.parametrize("payload", [b"[+1]", b"[01]", b"[1.]", b"[.1]", b"[1,]"])

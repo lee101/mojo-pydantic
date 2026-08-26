@@ -1,3 +1,4 @@
+from max.algorithm import parallelize
 from std.ffi import external_call
 from std.math import floor
 from std.memory import stack_allocation
@@ -179,6 +180,23 @@ def parse_float(data: BPtr, start: Int, end: Int) -> Float64:
     return external_call["strtod", Float64](data + start, Int(0))
 
 
+def parse_small_i64(data: BPtr, start: Int, end: Int) -> Tuple[Bool, Int64]:
+    var i = start
+    var negative = False
+    if data[i] == UInt8(45):
+        negative = True
+        i += 1
+    var value = Int64(0)
+    comptime LIMIT = Int64(9007199254740991)
+    while i < end:
+        var digit = Int64(data[i] - UInt8(48))
+        if value > (LIMIT - digit) // 10:
+            return (False, Int64(0))
+        value = value * 10 + digit
+        i += 1
+    return (True, -value if negative else value)
+
+
 def finish_element(data: BPtr, n: Int, i: Int) -> Tuple[Int, Int]:
     var pos = skip_space(data, n, i)
     if pos >= n:
@@ -283,8 +301,7 @@ def json_f64_array_parallel(
         if not ok:
             IPtr(unsafe_from_address=dst_addr)[count_start] = FAILURE_BITS
 
-    for task in range(TASKS):
-        worker(task)
+    parallelize[worker](TASKS, TASKS)
     var result_bits = IPtr(unsafe_from_address=dst_addr)
     for task in range(TASKS):
         if result_bits[capacity * task // TASKS] == FAILURE_BITS:
@@ -352,23 +369,29 @@ def json_i64_array(data: BPtr, n: Int, dst: IPtr, capacity: Int, strict: Bool) -
         var after = bounds[2]
         if start < 0 or (strict and quoted):
             return -1
-        var value = 0.0
-        if strict and valid_json_int(data, start, end):
-            value = parse_float(data, start, end)
-        elif not strict and (
-            (quoted and valid_float(data, start, end))
-            or (not quoted and valid_json_float(data, start, end))
-        ):
-            value = parse_float(data, start, end)
-        elif not strict and not quoted and equal_ascii(data, start, end, String("true")):
-            value = 1.0
-        elif not strict and not quoted and equal_ascii(data, start, end, String("false")):
-            value = 0.0
+        if not quoted and valid_json_int(data, start, end):
+            var parsed = parse_small_i64(data, start, end)
+            if not parsed[0]:
+                return -1
+            dst[count] = parsed[1]
         else:
-            return -1
-        if value != floor(value) or value <= -9007199254740992.0 or value >= 9007199254740992.0:
-            return -1
-        dst[count] = Int64(value)
+            var value = 0.0
+            if strict:
+                return -1
+            if (
+                (quoted and valid_float(data, start, end))
+                or (not quoted and valid_json_float(data, start, end))
+            ):
+                value = parse_float(data, start, end)
+            elif not quoted and equal_ascii(data, start, end, String("true")):
+                value = 1.0
+            elif not quoted and equal_ascii(data, start, end, String("false")):
+                value = 0.0
+            else:
+                return -1
+            if value != floor(value) or value <= -9007199254740992.0 or value >= 9007199254740992.0:
+                return -1
+            dst[count] = Int64(value)
         count += 1
         var finish = finish_element(data, n, after)
         i = finish[0]

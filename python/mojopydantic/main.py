@@ -433,6 +433,61 @@ class BaseModel(metaclass=ModelMetaclass):
     def _validate_simple_dict(
         cls, source: dict[str, Any], strict: bool
     ) -> "BaseModel":
+        plan = cls.__simple_model_plan__ or ()
+        values: dict[str, Any] = {}
+        try:
+            for name, _, scalar_validator, item_type in plan:
+                raw = source[name]
+                raw_type = type(raw)
+                if scalar_validator is _validate_int:
+                    if raw_type is int:
+                        values[name] = raw
+                    elif not strict and raw_type in (str, bytes, bytearray, bool):
+                        values[name] = int(raw)
+                    else:
+                        return cls._validate_simple_dict_diagnostic(source, strict)
+                elif scalar_validator is _validate_float:
+                    if raw_type is float:
+                        values[name] = raw
+                    elif raw_type is int or (
+                        not strict and raw_type in (str, bytes, bytearray, bool)
+                    ):
+                        values[name] = float(raw)
+                    else:
+                        return cls._validate_simple_dict_diagnostic(source, strict)
+                elif scalar_validator is _validate_bool:
+                    if raw_type is bool:
+                        values[name] = raw
+                    elif not strict and raw_type in (str, bytes, bytearray):
+                        text = raw if raw_type is str else bytes(raw).decode()
+                        lowered = text.lower()
+                        if lowered in ("1", "on", "t", "true", "y", "yes"):
+                            values[name] = True
+                        elif lowered in ("0", "off", "f", "false", "n", "no"):
+                            values[name] = False
+                        else:
+                            return cls._validate_simple_dict_diagnostic(source, strict)
+                    else:
+                        return cls._validate_simple_dict_diagnostic(source, strict)
+                elif raw_type is list:
+                    parsed = _fast_primitive_items(raw, item_type, strict)
+                    if parsed is _NO_FAST_ITEMS:
+                        return cls._validate_simple_dict_diagnostic(source, strict)
+                    values[name] = parsed
+                else:
+                    return cls._validate_simple_dict_diagnostic(source, strict)
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError, OverflowError):
+            return cls._validate_simple_dict_diagnostic(source, strict)
+        instance = cls.__new__(cls)
+        object.__setattr__(instance, "__dict__", values)
+        object.__setattr__(instance, "__pydantic_fields_set__", set(values))
+        object.__setattr__(instance, "__pydantic_extra__", None)
+        return instance
+
+    @classmethod
+    def _validate_simple_dict_diagnostic(
+        cls, source: dict[str, Any], strict: bool
+    ) -> "BaseModel":
         values: dict[str, Any] = {}
         failures: list[dict[str, Any]] = []
         plan = cls.__simple_model_plan__ or ()

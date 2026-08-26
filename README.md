@@ -91,21 +91,22 @@ same contiguous dtype and values.
 
 | case | mojopydantic | pydantic | relative |
 | --- | ---: | ---: | ---: |
-| `validate_json_array` int64 (500k) | 43.09 ms | 65.44 ms | 1.52x faster |
-| `validate_json_array` float64 (300k) | 18.91 ms | 51.28 ms | 2.71x faster |
-| `validate_json_array` bool (750k) | 17.69 ms | 127.72 ms | 7.22x faster |
-| `validate_json list[int]` (500k) | 68.09 ms | 48.58 ms | 1.40x slower |
-| `validate_json list[float]` (300k) | 43.23 ms | 36.40 ms | 1.19x slower |
-| `validate_json list[bool]` (750k) | 23.57 ms | 67.17 ms | 2.85x faster |
-| `validate_python list[int]` strings (200k) | 79.20 ms | 25.40 ms | 3.12x slower |
-| `BaseModel.model_validate` (50k) | 333.49 ms | 156.01 ms | 2.14x slower |
+| `validate_json_array` int64 (500k) | 19.39 ms | 67.94 ms | 3.50x faster |
+| `validate_json_array` float64 (300k) | 17.83 ms | 49.41 ms | 2.77x faster |
+| `validate_json_array` bool (750k) | 17.35 ms | 75.84 ms | 4.37x faster |
+| `validate_json list[int]` (500k) | 36.69 ms | 47.81 ms | 1.30x faster |
+| `validate_json list[float]` (300k) | 32.86 ms | 38.84 ms | 1.18x faster |
+| `validate_json list[bool]` (750k) | 24.87 ms | 47.32 ms | 1.90x faster |
+| `validate_python list[int]` strings (200k) | 26.13 ms | 18.29 ms | 1.43x slower |
+| `BaseModel.model_validate` (50k) | 303.61 ms | 161.55 ms | 1.88x slower |
 
-Pydantic's Rust core is faster when the contract requires Python objects, and
-the Python schema engine remains slower for ordinary models. Mojo wins for all
-three large unboxed arrays in this measurement. Large float arrays use a SIMD
-delimiter scan followed by eight independent CPU parser tasks; arrays below
-100,000 elements or 512 KiB remain serial to avoid thread-launch overhead.
-Float conversion still calls correctly rounded libc `strtod`.
+Pydantic's Rust core remains faster for Python string-list coercion and
+ordinary models. Mojo wins for all six JSON array cases in this measurement.
+Large float arrays use a SIMD delimiter scan followed by eight independent CPU
+parser tasks; arrays below 100,000 elements or 512 KiB remain serial to avoid
+thread-launch overhead. Ordinary integer tokens use checked base-10 integer
+conversion, while float and coercible numeric conversion still call correctly
+rounded libc `strtod`.
 
 No GPU path is provided. Typed JSON parsing is branch-heavy and moves at least
 one input byte for very little arithmetic, well below the roughly two

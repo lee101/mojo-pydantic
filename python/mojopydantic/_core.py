@@ -631,6 +631,16 @@ def _validate_items(
 def _fast_primitive_items(
     values: Sequence[Any], item_type: Any, strict: bool
 ) -> list[Any] | object:
+    if (
+        item_type is int
+        and not strict
+        and values
+        and all(type(item) is str for item in values)
+    ):
+        try:
+            return list(map(int, values))
+        except ValueError:
+            return _NO_FAST_ITEMS
     result: list[Any] = []
     append = result.append
     try:
