@@ -1,4 +1,3 @@
-from std.algorithm import parallelize
 from std.ffi import external_call
 from std.math import floor
 from std.memory import stack_allocation
@@ -284,7 +283,8 @@ def json_f64_array_parallel(
         if not ok:
             IPtr(unsafe_from_address=dst_addr)[count_start] = FAILURE_BITS
 
-    parallelize[worker](TASKS, TASKS)
+    for task in range(TASKS):
+        worker(task)
     var result_bits = IPtr(unsafe_from_address=dst_addr)
     for task in range(TASKS):
         if result_bits[capacity * task // TASKS] == FAILURE_BITS:
