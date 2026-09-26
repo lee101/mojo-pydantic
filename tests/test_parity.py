@@ -121,7 +121,7 @@ def test_native_abi_rejects_invalid_addresses_and_sizes():
         assert function(source_address, 2, destination_address, -1, 0) == -1
 
 
-def test_float_array_parallel_threshold_and_simd_tail():
+def test_float_array_simd_tail_across_delimiter_widths():
     adapter = mp.TypeAdapter(list[float])
     for size in (99_999, 100_003):
         expected = np.arange(size, dtype=np.float64) * 0.125 - 10_000
@@ -130,7 +130,7 @@ def test_float_array_parallel_threshold_and_simd_tail():
         assert np.array_equal(ours, expected)
 
 
-def test_parallel_float_array_failure_falls_back_with_same_error():
+def test_float_array_failure_matches_upstream_error():
     values = [index * 0.125 for index in range(100_003)]
     values[50_001] = "not-a-float"
     payload = json.dumps(values, separators=(",", ":")).encode()

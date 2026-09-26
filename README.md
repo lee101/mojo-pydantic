@@ -102,10 +102,12 @@ same contiguous dtype and values.
 
 Pydantic's Rust core remains faster for Python string-list coercion and
 ordinary models. Mojo wins for all six JSON array cases in this measurement.
-Large float arrays use a SIMD delimiter scan followed by eight independent CPU
-parser tasks; arrays below 100,000 elements or 512 KiB remain serial to avoid
-thread-launch overhead. Ordinary integer tokens use checked base-10 integer
-conversion, while float and coercible numeric conversion still call correctly
+Large float arrays are parsed in a single pass. Splitting the buffer into
+independent parser tasks was measured and removed: a JSON token costs mostly
+branchy character comparison plus one libc `strtod` call, so there is not
+enough arithmetic per input byte for the split to pay for its bookkeeping.
+Ordinary integer tokens use checked base-10 integer conversion, while float and
+coercible numeric conversion still call correctly
 rounded libc `strtod`.
 
 No GPU path is provided. Typed JSON parsing is branch-heavy and moves at least

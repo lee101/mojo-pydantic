@@ -1,8 +1,5 @@
-from max.algorithm import parallelize
 from std.ffi import external_call
 from std.math import floor
-from std.memory import stack_allocation
-from std.sys.info import simd_width_of
 
 comptime BPtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
 comptime IPtr = UnsafePointer[Int64, AnyOrigin[mut=True]]
@@ -45,31 +42,6 @@ def token_end(data: BPtr, n: Int, start: Int) -> Int:
         end -= 1
     return end
 
-
-def advance_commas(data: BPtr, n: Int, start: Int, count: Int) -> Int:
-    comptime W = simd_width_of[DType.uint8]()
-    var remaining = count
-    var i = start
-    while i + W <= n:
-        var chars = data.load[width=W](i)
-        var mask = chars.eq(UInt8(44))
-        var found = Int(mask.cast[DType.uint8]().reduce_add())
-        if found >= remaining:
-            for lane in range(W):
-                if mask[lane]:
-                    remaining -= 1
-                    if remaining == 0:
-                        return i + lane + 1
-        else:
-            remaining -= found
-        i += W
-    while i < n:
-        if data[i] == UInt8(44):
-            remaining -= 1
-            if remaining == 0:
-                return i + 1
-        i += 1
-    return -1
 
 
 def numeric_bounds(data: BPtr, n: Int, start: Int) -> Tuple[Int, Int, Int]:
@@ -206,107 +178,6 @@ def finish_element(data: BPtr, n: Int, i: Int) -> Tuple[Int, Int]:
     if data[pos] == UInt8(93):
         return (pos + 1, 1)
     return (-1, -1)
-
-
-def parse_f64_partition(
-    data_addr: Int,
-    n: Int,
-    dst_addr: Int,
-    capacity: Int,
-    strict: Bool,
-    byte_start: Int,
-    count_start: Int,
-    count_end: Int,
-) -> Bool:
-    var data = BPtr(unsafe_from_address=data_addr)
-    var dst = FPtr(unsafe_from_address=dst_addr)
-    var i = byte_start
-    var count = count_start
-    while count < count_end:
-        var original_start = skip_space(data, n, i)
-        if original_start >= n:
-            return False
-        var quoted = data[original_start] == UInt8(34)
-        var bounds = numeric_bounds(data, n, i)
-        var start = bounds[0]
-        var end = bounds[1]
-        var after = bounds[2]
-        if start < 0 or (strict and quoted):
-            return False
-        var value = 0.0
-        if (quoted and valid_float(data, start, end)) or (
-            not quoted and valid_json_float(data, start, end)
-        ):
-            value = parse_float(data, start, end)
-        elif not strict and not quoted and equal_ascii(
-            data, start, end, String("true")
-        ):
-            value = 1.0
-        elif not strict and not quoted and equal_ascii(
-            data, start, end, String("false")
-        ):
-            value = 0.0
-        else:
-            return False
-        dst[count] = value
-        count += 1
-        var finish = finish_element(data, n, after)
-        i = finish[0]
-        if i < 0:
-            return False
-        if finish[1] == 1:
-            return (
-                count == capacity
-                and count_end == capacity
-                and skip_space(data, n, i) == n
-            )
-    return count_end < capacity and data[i - 1] == UInt8(44)
-
-
-def json_f64_array_parallel(
-    data_addr: Int,
-    n: Int,
-    dst_addr: Int,
-    capacity: Int,
-    strict: Bool,
-    first: Int,
-) -> Int:
-    comptime TASKS = 8
-    comptime FAILURE_BITS = Int64(9221120237041090560)
-    var positions = stack_allocation[TASKS, Int]()
-    var data = BPtr(unsafe_from_address=data_addr)
-    positions[0] = first
-    for task in range(1, TASKS):
-        var previous = capacity * (task - 1) // TASKS
-        var target = capacity * task // TASKS
-        positions[task] = advance_commas(
-            data, n, positions[task - 1], target - previous
-        )
-        if positions[task] < 0:
-            return -1
-
-    def worker(task: Int) capturing:
-        var count_start = capacity * task // TASKS
-        var count_end = capacity * (task + 1) // TASKS
-        var ok = parse_f64_partition(
-            data_addr,
-            n,
-            dst_addr,
-            capacity,
-            strict,
-            positions[task],
-            count_start,
-            count_end,
-        )
-        if not ok:
-            IPtr(unsafe_from_address=dst_addr)[count_start] = FAILURE_BITS
-
-    parallelize[worker](TASKS, TASKS)
-    var result_bits = IPtr(unsafe_from_address=dst_addr)
-    for task in range(TASKS):
-        if result_bits[capacity * task // TASKS] == FAILURE_BITS:
-            return -1
-    return capacity
 
 
 def json_f64_array(data: BPtr, n: Int, dst: FPtr, capacity: Int, strict: Bool) -> Int:
@@ -480,17 +351,6 @@ def mp_json_i64_array(data_addr: Int, n: Int, dst_addr: Int, capacity: Int, stri
 def mp_json_f64_array(data_addr: Int, n: Int, dst_addr: Int, capacity: Int, strict: Int) abi("C") -> Int:
     if data_addr == 0 or dst_addr == 0 or n <= 0 or capacity < 0:
         return -1
-    if capacity >= 100000 and n >= 524288:
-        var data = BPtr(unsafe_from_address=data_addr)
-        var i = skip_space(data, n, 0)
-        if i >= n or data[i] != UInt8(91):
-            return -1
-        i = skip_space(data, n, i + 1)
-        if i < n and data[i] == UInt8(93):
-            return 0 if skip_space(data, n, i + 1) == n else -1
-        return json_f64_array_parallel(
-            data_addr, n, dst_addr, capacity, strict != 0, i
-        )
     return json_f64_array(
         BPtr(unsafe_from_address=data_addr),
         n,
